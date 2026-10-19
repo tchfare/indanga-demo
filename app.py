@@ -197,7 +197,7 @@ def reasons(c):
     if c["growth"] == 2: r.append(("Nutrition", "growth faltering (low weight for age)"))
     elif c["growth"] == 1: r.append(("Nutrition", "growth slowing, at risk"))
     if c["doses"]: r.append(("Health", f"{c['doses']} vaccine dose{'s' if c['doses'] > 1 else ''} missed"))
-    if c["poor"]: r.append(("Protection", "household in Ubudehe category 1"))
+    if c["poor"]: r.append(("Protection", "household in Ubudehe category D or E (most vulnerable)"))
     if c["dis"]: r.append(("Protection", "child with a disability"))
     return r
 
@@ -323,12 +323,12 @@ with tab1:
             color=alt.Color("need:N", scale=alt.Scale(domain=list(NEED), range=list(NEED.values())), legend=None),
             tooltip=["need", alt.Tooltip("share:Q", format=".0%")]), 170), width="stretch")
         st.markdown("#### Fairness check")
-        groups = {"Girls": d.girl, "Boys": ~d.girl, "Disability": d.dis, "Ubudehe 1": d.poor, "Others": ~d.poor}
+        groups = {"Girls": d.girl, "Boys": ~d.girl, "Disability": d.dis, "Ubudehe D/E": d.poor, "Ubudehe A to C": ~d.poor}
         fair = pd.DataFrame({"group": list(groups), "rate": [(d[m].level == "High").mean() if m.any() else 0 for m in groups.values()]})
         st.altair_chart(style(alt.Chart(fair).mark_bar(cornerRadius=3, height=18, color=DARKBLUE).encode(
             y=alt.Y("group:N", title=None, sort=list(groups)), x=alt.X("rate:Q", axis=alt.Axis(format="%", title="share at high risk")),
             tooltip=["group", alt.Tooltip("rate:Q", format=".0%")]), 180), width="stretch")
-        st.markdown('<div class="note">Higher rates for the poorest reflect real need. The monthly check makes sure no group is missed or over flagged.</div>', unsafe_allow_html=True)
+        st.markdown('<div class="note">Higher rates in Ubudehe D and E reflect real need. With real data, the check compares how well at risk children are caught in each group, so that no group is missed or over flagged.</div>', unsafe_allow_html=True)
 
     # ---- under five focus
     u5 = df[df.age_group == "Under 5"]
@@ -406,7 +406,7 @@ with tab3:
         st.select_slider("Growth (weight for age)", options=[0, 1, 2], format_func=lambda v: ["normal", "at risk", "faltering"][v], key="growth", disabled=not young)
         st.slider("Vaccine doses missed", 0, 2, key="doses", disabled=not young)
         st.checkbox("Repeated a grade", key="rep", disabled=young)
-        st.checkbox("Household in Ubudehe category 1", key="poor")
+        st.checkbox("Household in Ubudehe category D or E", key="poor")
         st.checkbox("Child with a disability", key="dis")
         if st.button("Reset to recorded data", width="stretch"):
             st.session_state.loaded = None
