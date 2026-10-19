@@ -303,17 +303,26 @@ with tab1:
     st.write("")
     c1, c2 = st.columns([1.15, 1], gap="large")
     with c1, st.container(border=True):
-        st.markdown("#### Where risk is building up, by sector")
-        sec = d.groupby(["sector", "level"]).size().rename("n").reset_index()
-        sec["share"] = sec.n / sec.groupby("sector").n.transform("sum")
-        sec["o"] = sec.level.map({"High": 0, "Medium": 1, "Low": 2})
-        ch = alt.Chart(sec).mark_bar(cornerRadius=3, height=22).encode(
-            y=alt.Y("sector:N", title=None, sort=sorted(df.sector.unique())),
-            x=alt.X("share:Q", stack="normalize", axis=alt.Axis(format="%", title=None)),
-            color=alt.Color("level:N", scale=alt.Scale(domain=["High", "Medium", "Low"], range=[RED, ORANGE, "#E5E7EB"])),
-            order="o:Q", tooltip=["sector", "level", alt.Tooltip("share:Q", format=".0%")])
-        st.altair_chart(style(ch, 300), width="stretch")
-        st.markdown('<div class="note">District teams can send support where harm is concentrating.</div>', unsafe_allow_html=True)
+        st.markdown("#### Which sectors need the most support?")
+        st.markdown('<div class="note" style="margin:-6px 0 8px">Share of children <b>at risk</b> in each sector: <span style="color:#E2231A;font-weight:800">high risk</span> (visit this week) plus <span style="color:#F26A21;font-weight:800">medium risk</span> (follow up this month).</div>', unsafe_allow_html=True)
+        sec = d.groupby("sector").agg(n=("id", "size"), high=("level", lambda x: (x == "High").mean()), med=("level", lambda x: (x == "Medium").mean())).reset_index()
+        sec["at_risk"] = sec.high + sec.med
+        sec["label"] = sec.apply(lambda r: f"{r.at_risk:.0%}  ({r.high:.0%} high)", axis=1)
+        order_s = sec.sort_values("at_risk", ascending=False).sector.tolist()
+        long = sec.melt(id_vars=["sector", "n", "at_risk", "label"], value_vars=["high", "med"], var_name="lvl", value_name="share")
+        long["lvl"] = long.lvl.map({"high": "High risk", "med": "Medium risk"})
+        long["o"] = long.lvl.map({"High risk": 0, "Medium risk": 1})
+        xmax = float(min(1, sec.at_risk.max() * 1.7))
+        bars = alt.Chart(long).mark_bar(cornerRadius=3, height=24).encode(
+            y=alt.Y("sector:N", title=None, sort=order_s),
+            x=alt.X("share:Q", stack="zero", title="share of children in the sector", axis=alt.Axis(format="%", tickCount=4), scale=alt.Scale(domain=[0, xmax])),
+            color=alt.Color("lvl:N", scale=alt.Scale(domain=["High risk", "Medium risk"], range=[RED, ORANGE])),
+            order="o:Q", tooltip=["sector", "lvl", alt.Tooltip("share:Q", format=".0%"), alt.Tooltip("n:Q", title="children")])
+        labels = alt.Chart(sec).mark_text(align="left", dx=8, fontSize=14, fontWeight=700, color=INK, font="Noto Sans").encode(
+            y=alt.Y("sector:N", sort=order_s), x="at_risk:Q", text="label:N")
+        st.altair_chart(style(bars + labels, 300), width="stretch")
+        top = sec.sort_values("at_risk", ascending=False).iloc[0]
+        st.markdown(f'<div class="note"><b>{top.sector}</b> has the highest share of children at risk ({top.at_risk:.0%}). District teams can send extra support there first.</div>', unsafe_allow_html=True)
     with c2, st.container(border=True):
         st.markdown("#### What drives the alerts")
         need = flagged.main.value_counts(normalize=True).reindex(list(NEED)).fillna(0).rename("share").reset_index()
@@ -326,7 +335,7 @@ with tab1:
         groups = {"Girls": d.girl, "Boys": ~d.girl, "Disability": d.dis, "Ubudehe D/E": d.poor, "Ubudehe A to C": ~d.poor}
         fair = pd.DataFrame({"group": list(groups), "rate": [(d[m].level == "High").mean() if m.any() else 0 for m in groups.values()]})
         st.altair_chart(style(alt.Chart(fair).mark_bar(cornerRadius=3, height=18, color=DARKBLUE).encode(
-            y=alt.Y("group:N", title=None, sort=list(groups)), x=alt.X("rate:Q", axis=alt.Axis(format="%", title="share at high risk")),
+            y=alt.Y("group:N", title=None, sort=list(groups), axis=alt.Axis(labelLimit=220)), x=alt.X("rate:Q", axis=alt.Axis(format="%", title="share at high risk")),
             tooltip=["group", alt.Tooltip("rate:Q", format=".0%")]), 180), width="stretch")
         st.markdown('<div class="note">Higher rates in Ubudehe D and E reflect real need. With real data, the check compares how well at risk children are caught in each group, so that no group is missed or over flagged.</div>', unsafe_allow_html=True)
 
