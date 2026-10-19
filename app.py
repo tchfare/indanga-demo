@@ -86,6 +86,14 @@ p, li {{font-size:17px; line-height:1.55;}}
 .banner .float {{position:absolute; right:28px; bottom:26px; z-index:2; background:#fff; color:{INK}; border-radius:14px; padding:11px 15px; box-shadow:0 10px 26px rgba(0,0,0,.25); font-weight:700; font-size:14.5px; display:flex; gap:9px; align-items:center;}}
 .banner .float .dot {{width:11px; height:11px; border-radius:50%; background:{GREEN};}}
 
+/* small laptops and tablets */
+@media (min-width: 761px) and (max-width: 1180px) {{
+  .banner {{height:auto; min-height:540px;}}
+  .banner .txt {{position:relative; left:0; top:0; width:min(540px, 60%); padding:64px 0 96px 44px;}}
+  .banner h1 {{font-size:50px !important;}}
+  .banner .x {{display:none;}}
+}}
+
 /* phones and small screens */
 @media (max-width: 760px) {{
   .nav {{padding:12px 2px;}}
