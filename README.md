@@ -1,3 +1,4 @@
+
 # INDANGA: early warning for every child
 
 Student prototype for the **UNICEF Rwanda @40 Pan-African Student Competition** (Kigali, 30 October 2026).
@@ -26,3 +27,5 @@ Tchandikou Ouadja Fare, African Institute for Mathematical Sciences (AIMS) Rwand
 
 Photo © UNICEF/UNI725007/Iyakaremye, used with credit for this competition entry.
 This is an independent student prototype, not an official UNICEF product.
+
+# indanga-demo
