@@ -191,15 +191,16 @@ def level(p):
 
 
 def reasons(c):
+    """Plain-language reasons, largest risk contribution first (the same points the model adds up)."""
     r = []
-    if c["days"] >= 6: r.append(("Learning", f"missed {c['days']} school days this month"))
-    if c["rep"]: r.append(("Learning", "repeated a grade"))
-    if c["growth"] == 2: r.append(("Nutrition", "growth faltering (low weight for age)"))
-    elif c["growth"] == 1: r.append(("Nutrition", "growth slowing, at risk"))
-    if c["doses"]: r.append(("Health", f"{c['doses']} vaccine dose{'s' if c['doses'] > 1 else ''} missed"))
-    if c["poor"]: r.append(("Protection", "household in Ubudehe category D or E (most vulnerable)"))
-    if c["dis"]: r.append(("Protection", "child with a disability"))
-    return r
+    if c["days"] >= 6: r.append((W["day"] * c["days"], "Learning", f"missed {c['days']} school days this month"))
+    if c["rep"]: r.append((W["rep"], "Learning", "repeated a grade"))
+    if c["growth"] == 2: r.append((W["growth"][2], "Nutrition", "growth faltering (low weight for age)"))
+    elif c["growth"] == 1: r.append((W["growth"][1], "Nutrition", "growth slowing, at risk"))
+    if c["doses"]: r.append((W["dose"] * c["doses"], "Health", f"{c['doses']} vaccine dose{'s' if c['doses'] > 1 else ''} missed"))
+    if c["poor"]: r.append((W["poor"], "Protection", "household in Ubudehe category D or E (most vulnerable)"))
+    if c["dis"]: r.append((W["dis"], "Protection", "child with a disability"))
+    return [(need, text) for _, need, text in sorted(r, key=lambda x: -x[0])]
 
 
 @st.cache_data
@@ -385,6 +386,20 @@ with tab2:
                  .rename(columns={"id": "Child ID", "age": "Age", "sector": "Sector", "p": "Risk"}),
                  hide_index=True, width="stretch", height=560, row_height=44,
                  column_config={"Risk": st.column_config.ProgressColumn("Risk", min_value=0, max_value=1, format="percent")})
+    with st.expander("Where do the reasons come from?"):
+        st.markdown("""
+In this demo the data is **simulated**. In a real pilot, each reason would come from a record that already exists in Rwanda, and the reasons are listed **largest risk contribution first**.
+
+| Reason | Source system | Recorded by |
+|---|---|---|
+| School days missed, repeated a grade | School Data Management System (SDMS, MINEDUC) | Teachers and schools |
+| Growth faltering (weight for age) | Community health records (cEMR) and health centres (HMIS / DHIS2) | Community health workers |
+| Vaccine doses missed | Immunisation register | Health centres |
+| Ubudehe category D or E | Ubudehe database (LODA / MINALOC) | Local authorities |
+| Child with a disability | Disability registers and Ubudehe data | Social workers, local authorities |
+
+Records are linked for the same child (civil registration ID where available, otherwise careful matching on name, date of birth, village and caregiver), under a data sharing agreement. Each signal's contribution to the risk score becomes a plain-language reason that a frontline worker can check.
+""")
     st.markdown(f'<div class="note">{len(view)} children match. Showing the {len(show)} with the highest risk. Open a child in the next tab to see why.</div>', unsafe_allow_html=True)
     export = view.assign(
         risk_percent=(view.p * 100).round(1),
