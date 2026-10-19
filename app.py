@@ -203,6 +203,25 @@ def reasons(c):
     return [(need, text) for _, need, text in sorted(r, key=lambda x: -x[0])]
 
 
+LEVERS = [  # modifiable signals: (need, worker, action, how the record would change)
+    ("Learning", "Teacher", "back to school every day (remedial class and home contact)", dict(days=0)),
+    ("Nutrition", "Community health worker", "nutrition support restores normal growth", dict(growth=0)),
+    ("Health", "Community health worker", "catch up the missed vaccine doses", dict(doses=0)),
+]
+
+
+def best_actions(cur):
+    """Test each possible action on this child's record and rank them by how much they lower the risk."""
+    p0 = risk(contributions(**cur))
+    out = []
+    for need, who, what, change in LEVERS:
+        if all(cur[k] == v for k, v in change.items()):
+            continue                                   # nothing to fix on this signal
+        p1 = risk(contributions(**{**cur, **change}))
+        out.append(dict(need=need, who=who, what=what, before=p0, after=p1, drop=p0 - p1))
+    return sorted(out, key=lambda x: -x["drop"])
+
+
 @st.cache_data
 def simulate(n=1240, seed=20261030):
     rng = np.random.default_rng(seed)
@@ -442,6 +461,7 @@ with tab3:
     k = contributions(**cur)
     p, rs = risk(k), reasons(cur)
     lvl, main = level(p), max(k, key=k.get)
+    acts = best_actions(cur)
 
     with left, st.container(border=True):
         st.markdown(f"#### Child {cid}")
@@ -462,7 +482,10 @@ with tab3:
         st.markdown('<div class="note" style="margin-top:10px">Transparent model: every point of risk comes from a reason a frontline worker can check.</div>', unsafe_allow_html=True)
 
     with right:
-        who, what = ACTION[main]
+        if acts:
+            who, what = acts[0]["who"], acts[0]["what"]
+        else:
+            who, what = ACTION[main]
         two = " and ".join(t for _, t in rs[:2])
         if lvl == "Low":
             alert = f"INDANGA: child {cid} ({c.sector}) is now low risk. No visit needed this week. Thank you!"
@@ -494,6 +517,24 @@ with tab3:
                 st.toast(f"{cid}: {stt}")
                 st.rerun()
         st.markdown(f'<div class="note" style="text-align:center">Status: <b>{status or "To visit"}</b> &middot; INDANGA suggests, the worker decides.</div>', unsafe_allow_html=True)
+
+    st.write("")
+    with st.container(border=True):
+        st.markdown("#### Which action lowers the risk most?")
+        st.markdown('<div class="note" style="margin:-6px 0 10px">INDANGA tests each possible action on this child\'s record and ranks them. Start with the first one. Poverty and disability cannot be "fixed" this way: they call for social worker support and explain why the child needs extra attention.</div>', unsafe_allow_html=True)
+        if not acts:
+            st.markdown('<div class="reason">No modifiable warning sign: keep monitoring, and involve the social worker if protection risks remain.</div>', unsafe_allow_html=True)
+        else:
+            cols = st.columns(len(acts))
+            for i, (col, a_) in enumerate(zip(cols, acts)):
+                lv1 = level(a_["after"])
+                badge = '<span class="chip" style="background:#00833D">Best first step</span>' if i == 0 else ""
+                col.markdown(f"""<div class="kpi">{badge}
+<div style="font-weight:800;font-size:16px;margin:8px 0 2px;color:{NEED[a_['need']]}">{a_['need']} &middot; {a_['who']}</div>
+<div style="font-size:15.5px;min-height:46px">{a_['what'].capitalize()}</div>
+<div style="font-size:30px;font-weight:800;margin-top:6px">{a_['before']:.0%} <span style="color:#9CA3AF">&rarr;</span> <span style="color:{LVL[lv1]}">{a_['after']:.0%}</span></div>
+<div class="l">risk drops by {a_['drop']*100:.0f} points, to {lv1.lower()} risk</div></div>""", unsafe_allow_html=True)
+        st.markdown('<div class="note" style="margin-top:10px">The model is predictive, not causal: this shows how the risk score would change. Whether the action really prevents dropout or stunting is what the pilot evaluation will measure.</div>', unsafe_allow_html=True)
 
 # ------------------------------------------------------------------ footer
 st.markdown(f"""
