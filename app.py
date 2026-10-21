@@ -264,6 +264,46 @@ def under5_trend(share_now, n_u5, seed=7):
     return pd.DataFrame({"month": months, "share": share, "n": n_u5})
 
 
+# ------------------------------------------------------------------ referral outcomes (simulated)
+REFSERVICE = {"Learning": "Remedial learning (school)", "Nutrition": "Nutrition growth-monitoring",
+              "Health": "Immunisation catch-up", "Protection": "Social worker household visit"}
+ROLE = {"Learning": "Teacher", "Nutrition": "CHW", "Health": "CHW", "Protection": "Social worker"}
+REF_COLOR = {"Completed": GREEN, "Accepted": CYAN, "In progress": ORANGE, "Sent": GREY, "Declined": RED}
+REF_EMOJI = {"Completed": "🟢", "Accepted": "🔵", "In progress": "🟠", "Sent": "⚪", "Declined": "🔴"}
+
+
+@st.cache_data
+def simulate_referrals(seed=20261030):
+    """Simulated outcomes for the high-risk children escalated to a service this week."""
+    d = simulate()
+    rng = np.random.default_rng(seed + 11)
+    init = ["K.M.", "J.U.", "A.N.", "P.H.", "B.M.", "R.I.", "S.K.", "D.N.", "F.A.", "L.T."]
+    upd_opts = ["Today", "Today", "2 h ago", "Yesterday", "19 Oct", "18 Oct"]
+    dec_notes = ["no available slot", "family relocated", "duplicate referral"]
+    rows = []
+    for _, c in d[d.level == "High"].sort_values("p", ascending=False).iterrows():
+        if rng.random() > 0.72:
+            continue
+        need, u = c["main"], rng.random()
+        stt = ("Completed" if u < 0.20 else "Accepted" if u < 0.48 else "In progress"
+               if u < 0.78 else "Sent" if u < 0.90 else "Declined")
+        taken = stt in ("Accepted", "In progress", "Completed")
+        delay = np.nan if stt == "Sent" else float(max(1, round((20 if stt == "Completed" else 5) + rng.random() * 46)))
+        note = (dec_notes[rng.integers(0, len(dec_notes))] if stt == "Declined"
+                else ("family not reached yet" if stt == "In progress" and rng.random() < 0.3 else ""))
+        rows.append(dict(id=c["id"], need=need, service=REFSERVICE[need], status=stt,
+                         who=(f"{ROLE[need]} {init[rng.integers(0, len(init))]}" if taken else "awaiting"),
+                         delay_h=delay, updated=upd_opts[rng.integers(0, len(upd_opts))], note=note))
+    return pd.DataFrame(rows)
+
+
+def fmt_delay(h):
+    if pd.isna(h):
+        return "—"
+    h = int(h)
+    return f"{round(h / 24)} d" if h >= 24 else f"{h} h"
+
+
 AGE_OPTS = ["All children (0 to 13)", "Under 5", "5 to 13"]
 
 
@@ -306,7 +346,7 @@ st.markdown(f"""
 </div>
 """, unsafe_allow_html=True)
 
-tab1, tab2, tab3 = st.tabs(["District overview", "Children to visit", "Child profile and what if"])
+tab1, tab2, tab3, tab4 = st.tabs(["District overview", "Children to visit", "Child profile and what if", "Referrals"])
 
 # ------------------------------------------------------------------ 1. overview
 with tab1:
@@ -535,6 +575,94 @@ with tab3:
 <div style="font-size:30px;font-weight:800;margin-top:6px">{a_['before']:.0%} <span style="color:#9CA3AF">&rarr;</span> <span style="color:{LVL[lv1]}">{a_['after']:.0%}</span></div>
 <div class="l">risk drops by {a_['drop']*100:.0f} points, to {lv1.lower()} risk</div></div>""", unsafe_allow_html=True)
         st.markdown('<div class="note" style="margin-top:10px">The model is predictive, not causal: this shows how the risk score would change. Whether the action really prevents dropout or stunting is what the pilot evaluation will measure.</div>', unsafe_allow_html=True)
+
+# ------------------------------------------------------------------ 4. referrals
+with tab4:
+    st.markdown('<div class="section-title">Referral tracking</div>'
+                '<div class="section-sub">What happened after each flag: the status, who accepted it, and how long it took. Closing the loop.</div>',
+                unsafe_allow_html=True)
+    ref = simulate_referrals().copy()
+    # reflect referrals made live in the Child profile tab this session
+    ids_now = set(df.id)
+    for cid, sstat in st.session_state.status.items():
+        if sstat != "Referred":
+            continue
+        if cid in set(ref.id):
+            idx = ref.index[ref.id == cid][0]
+            ref.loc[idx, ["status", "who", "delay_h", "updated", "note"]] = ["Sent", "awaiting", np.nan, "Just now", ""]
+        elif cid in ids_now:
+            need_c = df.set_index("id").loc[cid, "main"]
+            ref = pd.concat([pd.DataFrame([dict(id=cid, need=need_c, service=REFSERVICE[need_c], status="Sent",
+                                                who="awaiting", delay_h=np.nan, updated="Just now", note="")]), ref],
+                            ignore_index=True)
+
+    flagged_week = int((df.level == "High").sum())
+    referred = len(ref)
+    taken = int(ref.status.isin(["Accepted", "In progress", "Completed"]).sum())
+    completed = int((ref.status == "Completed").sum())
+    med = ref.loc[ref.status.isin(["Accepted", "In progress", "Completed"]) & ref.delay_h.notna(), "delay_h"]
+    med_txt = "—" if med.empty else (f"{med.median() / 24:.1f} d" if med.median() >= 24 else f"{int(med.median())} h")
+    pct = f"{round(taken / referred * 100)}%" if referred else "0%"
+
+    cols = st.columns(3)
+    for col, val, lab, colr in [(cols[0], referred, "referrals escalated this week", CYAN),
+                                (cols[1], pct, "accepted, in progress or completed", GREEN),
+                                (cols[2], med_txt, "median time to acceptance", ORANGE)]:
+        col.markdown(f'<div class="kpi"><div class="bar" style="background:{colr}"></div>'
+                     f'<div class="n">{val}</div><div class="l">{lab}</div></div>', unsafe_allow_html=True)
+    st.write("")
+
+    g1, g2 = st.columns([1.15, 1], gap="large")
+    with g1, st.container(border=True):
+        st.markdown("#### From flag to outcome")
+        st.markdown('<div class="note" style="margin:-6px 0 8px">Where children are lost between a flag and a completed referral. The gaps show the district where to unblock.</div>', unsafe_allow_html=True)
+        fun = pd.DataFrame({"stage": ["Flagged this week", "Referred onward", "Accepted / taken up", "Completed"],
+                            "n": [flagged_week, referred, taken, completed]})
+        order_f = fun.stage.tolist()
+        funnel = alt.Chart(fun).mark_bar(cornerRadius=4, height=34).encode(
+            y=alt.Y("stage:N", sort=order_f, title=None),
+            x=alt.X("n:Q", title=None),
+            color=alt.Color("stage:N", scale=alt.Scale(domain=order_f, range=[PURPLE, CYAN, ORANGE, GREEN]), legend=None),
+            tooltip=["stage", "n"])
+        flab = alt.Chart(fun).mark_text(align="left", dx=7, fontSize=15, fontWeight=700, color=INK, font="Noto Sans").encode(
+            y=alt.Y("stage:N", sort=order_f), x="n:Q", text="n:Q")
+        st.altair_chart(style(funnel + flab, 240), width="stretch")
+    with g2, st.container(border=True):
+        st.markdown("#### Referral status mix")
+        sts = ["Sent", "Accepted", "In progress", "Completed", "Declined"]
+        mix = pd.DataFrame({"status": sts, "n": [int((ref.status == s).sum()) for s in sts]})
+        st.altair_chart(style(alt.Chart(mix).mark_bar(cornerRadius=3, height=26).encode(
+            y=alt.Y("status:N", sort=sts, title=None),
+            x=alt.X("n:Q", title=None),
+            color=alt.Color("status:N", scale=alt.Scale(domain=sts, range=[REF_COLOR[s] for s in sts]), legend=None),
+            tooltip=["status", "n"]), 240), width="stretch")
+        st.markdown('<div class="note">Every referral has an owner and an outcome, so none is sent and forgotten.</div>', unsafe_allow_html=True)
+
+    st.write("")
+    with st.container(border=True):
+        st.markdown("#### Referred children")
+        fc1, fc2 = st.columns([1, 1])
+        fstatus = fc1.selectbox("Status", ["All statuses"] + sts, key="ref_status")
+        fq = fc2.text_input("Search child ID", placeholder="e.g. RW-5015P", key="ref_q").strip().upper()
+        tv = ref.copy()
+        if fstatus != "All statuses":
+            tv = tv[tv.status == fstatus]
+        if fq:
+            tv = tv[tv.id.str.contains(fq)]
+        table = pd.DataFrame({
+            "Child ID": tv.id.values,
+            "Referred to": [s + (f"  ({n})" if n else "") for s, n in zip(tv.service, tv.note)],
+            "Status": [f"{REF_EMOJI[s]} {s}" for s in tv.status],
+            "Accepted by": tv.who.values,
+            "Delay": [fmt_delay(h) for h in tv.delay_h],
+            "Updated": tv.updated.values,
+        })
+        st.dataframe(table, hide_index=True, width="stretch", height=430, row_height=42)
+        st.markdown(f'<div class="note">{len(tv)} of {len(ref)} referrals shown. This view supports coordination between teams. '
+                    'It is not a tool to monitor individual staff, and a human owns every decision.</div>', unsafe_allow_html=True)
+        st.download_button(f"⬇️  Download referrals as CSV ({len(tv)})",
+                           tv[["id", "need", "service", "status", "who", "delay_h", "updated", "note"]].to_csv(index=False).encode("utf-8"),
+                           file_name="INDANGA_referrals_simulated.csv", mime="text/csv")
 
 # ------------------------------------------------------------------ footer
 st.markdown(f"""
